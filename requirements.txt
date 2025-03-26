@@ -3,6 +3,7 @@ uvicorn
 pandas
 python-dotenv
 langchain
+langchain-community
 langchain-core
 langgraph
 pinecone-client
@@ -11,3 +12,5 @@ openai
 snowflake-connector-python
 matplotlib
 serpapi
+graphviz
+langchain_openai

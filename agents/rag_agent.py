@@ -1,56 +1,56 @@
 # agents/rag_agent.py
 import os
-import openai
-from pinecone import Pinecone
-from langchain.vectorstores import Pinecone as PineconeVectorStore
-from langchain.embeddings.huggingface import HuggingFaceEmbeddings
-from langchain.schema import Document
+from langchain_community.vectorstores import Pinecone 
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain.chains import RetrievalQA
+from langchain_openai import ChatOpenAI
+from langchain.tools import BaseTool
+from pinecone import Pinecone as PineconeClient
 from dotenv import load_dotenv
 
 load_dotenv()
 
-PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-if not PINECONE_API_KEY:
-    raise EnvironmentError("PINECONE_API_KEY not found in environment variables")
-
-def query_nvidia_reports(query: str, year: int, quarter: int, top_k: int = 5) -> str:
-    """
-    Query the Pinecone index "nvidia-reports" from a specific namespace (e.g. "2023q2")
-    using hybrid search to generate an answer.
-    """
-    namespace = f"{year}q{quarter}"
+def query_nvidia_reports(query: str, year: int = None, quarter: int = None, top_k: int = 5) -> str:
+    """Query NVIDIA reports using vector search."""
+    # Create namespace from year and quarter
+    namespace = f"{year}q{quarter}" if year and quarter else None
     
-    # Initialize Pinecone client
-    pc = Pinecone(api_key=PINECONE_API_KEY)
+    # Initialize Pinecone client and vector store
+    pc = PineconeClient(api_key=os.getenv("PINECONE_API_KEY"))
     index_name = "nvidia-reports"
     index = pc.Index(index_name)
+    
+    # Initialize embeddings model
     embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-    vector_store = PineconeVectorStore(index=index, embedding=embeddings, text_key="page_content")
     
-    # Use namespace filtering in the retriever:
-    retriever = vector_store.as_retriever(search_kwargs={"k": top_k, "namespace": namespace})
-    semantic_results = retriever.get_relevant_documents(query)
-    keyword_results = vector_store.similarity_search(query, k=top_k, namespace=namespace)
+    # Create vector store with the embeddings model
+    vector_store = Pinecone(index, embeddings, text_key="page_content")
     
-    # Merge and deduplicate results (with weighted scores)
-    ranked_results = [(doc.page_content, 0.7) for doc in semantic_results] + \
-                     [(doc.page_content, 0.3) for doc in keyword_results]
-    unique_results = {}
-    for content, score in sorted(ranked_results, key=lambda x: x[1], reverse=True):
-        unique_results[content] = score
-    final_results = list(unique_results.keys())[:top_k]
+    # Create a retriever with namespace filtering if specified
+    search_kwargs = {"k": top_k}
+    if namespace:
+        search_kwargs["namespace"] = namespace
     
-    if not final_results:
-        return f"No relevant information found for namespace {namespace}"
+    retriever = vector_store.as_retriever(search_kwargs=search_kwargs)
     
-    top_chunks = "\n\n".join(final_results[:3])
-    
-    openai.api_key = os.getenv("OPENAI_API_KEY")
-    response = openai.ChatCompletion.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": "You are an AI financial assistant that answers questions based on NVIDIA quarterly reports."},
-            {"role": "user", "content": f"Context:\n{top_chunks}\n\nQuestion: {query}\nAnswer based on the above context:"}
-        ]
+    # Create a QA chain with the retriever
+    llm = ChatOpenAI(model="gpt-4o", temperature=0)
+    qa_chain = RetrievalQA.from_chain_type(
+        llm=llm,
+        chain_type="stuff",
+        retriever=retriever,
+        return_source_documents=False,
     )
-    return response.choices[0].message.content
+    
+    # Run the query
+    result = qa_chain.invoke(query)
+    return result["result"]
+
+# Create LangChain tool for the RAG agent
+from langchain.tools import Tool
+
+rag_tool = Tool(
+    name="nvidia_reports_search",
+    description="Search NVIDIA quarterly reports for specific information",
+    func=query_nvidia_reports
+)
