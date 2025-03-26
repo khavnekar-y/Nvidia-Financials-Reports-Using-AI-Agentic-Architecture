@@ -1,0 +1,15 @@
+selenium>=4.0.0
+webdriver-manager>=3.8.0
+cryptography
+mistralai
+streamlit
+boto3
+streamlit
+requests
+matplotlib
+pandas
+numpy
+tiktoken
+redis
+serpapi
+google-search-results
