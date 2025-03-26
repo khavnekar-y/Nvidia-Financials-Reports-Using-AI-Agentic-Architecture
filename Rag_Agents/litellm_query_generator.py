@@ -1,345 +1,259 @@
 import os
-import re
-from typing import List, Dict, Any, Optional, Literal
-import litellm
-import time
+import glob
+from typing import List, Dict, Any
+import pinecone
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.schema import Document
+from langchain_core.runnables import RunnablePassthrough
+from langchain.prompts import PromptTemplate
+from langchain_openai import ChatOpenAI
+from langchain_core.output_parsers import StrOutputParser
+from langgraph.graph import StateGraph, END
 from dotenv import load_dotenv
-from pathlib import Path
-# Try to find and load the .env file
-def load_env_file():
-    """Attempt to load environment variables from .env file in various locations"""
-    # Current directory
-    if os.path.exists(".env"):
-        load_dotenv(".env")
-        print("Loaded .env from current directory")
-        return True
-        
-    # Project root directory (parent of current directory)
-    project_root = Path(__file__).parent.parent
-    env_path = project_root / ".env"
-    if env_path.exists():
-        load_dotenv(env_path)
-        print(f"Loaded .env from project root: {env_path}")
-        return True
-        
-    print("WARNING: No .env file found!")
-    return False
+from langchain.vectorstores import Pinecone as LangchainPinecone
 
 # Load environment variables
-load_env_file()
+load_dotenv('.env')
 
-# Function to force reload environment variables
-def reload_env_variables():
-    """Force reload environment variables from .env file, clearing any cached values"""
-    # Clear specific environment variables we're using
-    for key in ["GEMINI_API_KEY", "ANTHROPIC_API_KEY", "DEEP_SEEK_API_KEY", 
-                "OPENAI_API_KEY", "GROK_API_KEY"]:
-        if key in os.environ:
-            del os.environ[key]
-
-    # Reload from .env file
-    load_env_file()
-
-# Configure LiteLLM with API keys
-litellm.gemini_key = os.getenv("GEMINI_API_KEY")
-litellm.anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
-litellm.deepseek_api_key = os.getenv("DEEP_SEEK_API_KEY")
-litellm.openai_api_key = os.getenv("OPENAI_API_KEY")
-litellm.xai_api_key = os.getenv("GROK_API_KEY")
-
-# Debug output to check API keys
-print(f"API Keys Status:")
-print(f"- Gemini:    {'✓' if litellm.gemini_key else '✗'}")
-print(f"- Anthropic: {'✓' if litellm.anthropic_api_key else '✗'}")
-print(f"- DeepSeek:  {'✓' if litellm.deepseek_api_key else '✗'}")
-print(f"- OpenAI:    {'✓' if litellm.openai_api_key else '✗'}")
-print(f"- Grok:      {'✓' if litellm.xai_api_key else '✗'}")
-
-# Model configurations
-MODEL_CONFIGS = {
-    "gpt-3.5-turbo": {
-        "name": "gpt-3.5-turbo",
-        "model": "openai/gpt-3.5-turbo",
-        "max_input_tokens": 128000,
-        "max_output_tokens": 4096,
-    },
-    "gemini": {
-        "name": "Gemini Flash",
-        "model": "gemini/gemini-1.5-flash",
-        "max_input_tokens": 100000,
-        "max_output_tokens": 4000,
-    },
-    "deepseek": {
-        "name": "DeepSeek",
-        "model": "deepseek/deepseek-reasoner", 
-        "max_input_tokens": 16000,
-        "max_output_tokens": 2048,
-    },
-    "claude": {
-        "name": "Claude 3 Sonnet",
-        "model": "anthropic/claude-3-5-sonnet-20240620",
-        "max_input_tokens": 100000,
-        "max_output_tokens": 4096,
-    },
-    "grok": {
-        "name": "Grok",
-        "model": "xai/grok-2-latest", 
-        "max_input_tokens": 8192,
-        "max_output_tokens": 2048,
-    }
-}
-
-def create_llm_response_from_chunks(
-    chunks: List[str],
-    metadata: Optional[List[Dict[str, Any]]] = None,
-    query: str = "",
-    model_id: str = "gpt-3.5-turbo"
-) -> Dict[str, Any]:
-    """
-    Generate a Q&A response from text chunks using the specified model.
-    
-    Args:
-        chunks: List of text chunks to process
-        metadata: Optional list of metadata for each chunk
-        query: The user's question
-        model_id: ID of the model to use (from MODEL_CONFIGS)
+class RAGPineconeAgent:
+    def __init__(self, pinecone_api_key=None, pinecone_environment=None, index_name="nvidia-content"):
+        """Initialize the RAG Pinecone Agent with API keys and configuration"""
+        self.pinecone_api_key = pinecone_api_key or os.getenv("PINECONE_API_KEY")
+        self.pinecone_environment = pinecone_environment or os.getenv("PINECONE_ENVIRONMENT")
+        self.index_name = index_name
+        self.openai_api_key = os.getenv("OPENAI_API_KEY")
         
-    Returns:
-        A dictionary containing the response and token usage information
-    """
-    try:
-        # Validate inputs
-        if not chunks:
-            return {"content": "Error: No chunks provided for processing.", "usage": {"total_tokens": 0}}
-            
-        if not query:
-            return {"content": "Error: Question must be provided for Q&A.", "usage": {"total_tokens": 0}}
-            
-        if model_id not in MODEL_CONFIGS:
-            return {"content": f"Error: Unsupported model '{model_id}'. Choose from: {', '.join(MODEL_CONFIGS.keys())}", "usage": {"total_tokens": 0}}
+        if not self.pinecone_api_key or not self.openai_api_key:
+            raise ValueError("Missing required API keys. Please set PINECONE_API_KEY, PINECONE_ENVIRONMENT, and OPENAI_API_KEY in environment variables.")
         
-        model_config = MODEL_CONFIGS[model_id]
-        
-        # Check API key availability for the selected model
-        api_key_status = False
-        
-        if model_id == "gemini" and litellm.gemini_key:
-            api_key_status = True
-        elif model_id == "gpt-3.5-turbo" and litellm.openai_api_key:
-            api_key_status = True
-        elif model_id == "claude" and litellm.anthropic_api_key: 
-            api_key_status = True
-        elif model_id == "deepseek" and litellm.deepseek_api_key:
-            api_key_status = True
-        elif model_id == "grok" and litellm.xai_api_key:
-            api_key_status = True
-            
-        if not api_key_status:
-            return {"content": f"Error: API key not found for {model_id}. Please check your .env file.", "usage": {"total_tokens": 0}}
-        
-        # Prepare the context from chunks
-        context = ""
-        for i, chunk in enumerate(chunks):
-            # Add metadata if available
-            if metadata and i < len(metadata):
-                meta = metadata[i]
-                source = meta.get("source", "Unknown")
-                similarity = meta.get("similarity_score", "N/A")
-                context += f"\n## Source {i+1}: {source} (Similarity: {similarity})\n\n{chunk}\n\n"
-            else:
-                context += f"\n## Chunk {i+1}:\n\n{chunk}\n\n"
-        
-        # Create system message with instructions
-        system_message = f"""You are a helpful AI assistant that answers questions based on the provided content.
-        
-Use the following context to answer the user's question:
-
-{context}
-
-When answering:
-1. Only use information from the provided context
-2. If the information isn't in the context, say "I don't have enough information to answer this question"
-3. Be concise and focused in your response"""
-        
-        # Prepare the messages with both system and user content
-        messages = [
-            {"role": "system", "content": system_message},
-            {"role": "user", "content": query}
-        ]
-        
-        # Call model using LiteLLM with specific configurations per model
-        if model_id == "claude":
-            response = litellm.completion(
-                model=model_config["model"],  
-                messages=messages,
-                temperature=0.3,
-                max_tokens=model_config["max_output_tokens"],
-                api_key=litellm.anthropic_api_key
-            )
-        elif model_id == "gemini":
-            response = litellm.completion(
-                model=model_config["model"], 
-                messages=messages,
-                temperature=0.3,
-                max_tokens=model_config["max_output_tokens"],
-                api_key=litellm.gemini_key
-            )
-        elif model_id == "deepseek":
-            response = litellm.completion(
-                model=model_config["model"], 
-                messages=messages,
-                temperature=0.3,
-                max_tokens=model_config["max_output_tokens"],
-                api_key=litellm.deepseek_api_key
-            )
-        elif model_id == "grok":
-            response = litellm.completion(
-                model=model_config["model"],  
-                messages=messages,
-                temperature=0.3,
-                max_tokens=model_config["max_output_tokens"],
-                api_key=litellm.xai_api_key
-            )
-        else:  # Default to GPT-3.5-turbo
-            response = litellm.completion(
-                model=model_config["model"],
-                messages=messages,
-                temperature=0.3,
-                max_tokens=model_config["max_output_tokens"],
-                api_key=litellm.openai_api_key
-            )
-        
-        # Extract and return the response with token usage
-        if response and response.choices and response.choices[0].message.content:
-            # Extract token usage information
-            usage_info = {
-                "prompt_tokens": response.usage.prompt_tokens if hasattr(response, 'usage') and hasattr(response.usage, 'prompt_tokens') else 0,
-                "completion_tokens": response.usage.completion_tokens if hasattr(response, 'usage') and hasattr(response.usage, 'completion_tokens') else 0,
-                "total_tokens": response.usage.total_tokens if hasattr(response, 'usage') and hasattr(response.usage, 'total_tokens') else 0
-            }
-            
-            return {
-                "content": response.choices[0].message.content,
-                "usage": usage_info
-            }
-        else:
-            return {
-                "content": f"Error: No response generated from {model_config['name']}.",
-                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-            }
-    
-    except Exception as e:
-        return {
-            "content": f"Error generating response: {str(e)}",
-            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-        }
-    
-def generate_response(
-    chunks: List[str],
-    query: str,
-    model_id: str = "gpt-3.5-turbo",
-    metadata: Optional[List[Dict[str, Any]]] = None,
-    output_file: Optional[str] = None,
-    images: Optional[List[Dict[str, Any]]] = None
-) -> Dict[str, Any]:
-    """
-    Generate a response to a query based on the provided chunks.
-    
-    Args:
-        chunks: List of text chunks from the RAG pipeline
-        query: User's question
-        model_id: ID of the model to use
-        metadata: Optional metadata for the chunks
-        output_file: Optional path to save the response
-        images: Optional list of base64 encoded images from the chunks
-        
-    Returns:
-        Dictionary with the generated answer and token usage information
-    """
-    print(f"Generating response using {MODEL_CONFIGS[model_id]['name']}")
-    print(f"Query: {query}")
-    print(f"Number of chunks: {len(chunks)}")
-    if images:
-        print(f"Number of images: {len(images)}")
-    
-    # Check if we should use a multimodal model with images
-    has_images = images and len(images) > 0
-    can_process_images = model_id in ["gemini", "claude", "gpt-4o"]
-    
-    if has_images and not can_process_images:
-        print(f"Warning: Images found but model {model_id} cannot process images. Consider using gemini, claude, or gpt-4o")
-    
-    # For models that support images (like Gemini, Claude, GPT-4o)
-    if has_images and can_process_images:
-        # Generate response with images using multimodal capabilities
-        response = create_llm_response_from_chunks(
-            chunks=chunks,
-            metadata=metadata,
-            query=query,
-            model_id=model_id,
-            images=images
+        # Initialize embedding model - use smaller, more efficient model
+        from langchain_community.embeddings import HuggingFaceEmbeddings
+        self.embeddings = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-MiniLM-L6-v2",
+            model_kwargs={"device": "cpu"}
         )
-    else:
-        # Standard text-only response
-        response = create_llm_response_from_chunks(
-            chunks=chunks,
-            metadata=metadata,
-            query=query,
-            model_id=model_id
+        print("Initialized embedding model: all-MiniLM-L6-v2 with dimension 384")
+        
+    def initialize_pinecone(self):
+        """Initialize Pinecone client and create index if it doesn't exist"""
+        pinecone.init(
+            api_key=self.pinecone_api_key,
+            environment=self.pinecone_environment
         )
-    
-    answer = response["content"]
-    usage = response["usage"]
-    
-    # Save the answer to a file if requested
-    if output_file:
-        # Create directory if it doesn't exist
-        os.makedirs(os.path.dirname(os.path.abspath(output_file)), exist_ok=True)
         
-        # Sanitize query for filename if no output file specified
-        if not os.path.basename(output_file):
-            query_part = re.sub(r'[^\w\s-]', '', query)[:30].strip().replace(' ', '_')
-            output_file = os.path.join(output_file, f"{model_id}_response_{query_part}.md")
+        # Check if index exists and create it if not
+        if self.index_name not in pinecone.list_indexes():
+            pinecone.create_index(
+                name=self.index_name,
+                dimension=384,  # all-MiniLM-L6-v2 dimension
+                metric="cosine"
+            )
+            print(f"Created new Pinecone index: {self.index_name}")
+        
+        return pinecone.Index(self.index_name)
+    
+    def load_markdown_files(self, content_dir: str) -> List[Document]:
+        """Load all markdown files from the specified directory into Document objects"""
+        markdown_files = glob.glob(os.path.join(content_dir, "*.md"))
+        documents = []
+        
+        for file_path in markdown_files:
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+                filename = os.path.basename(file_path)
+                # Create metadata with file info
+                metadata = {
+                    "source": file_path,
+                    "filename": filename,
+                    "type": filename.split("_")[0]  # Extract type (general, news, quarterly)
+                }
+                documents.append(Document(page_content=content, metadata=metadata))
+                
+        print(f"Loaded {len(documents)} markdown documents")
+        return documents
+    
+    def chunk_documents(self, documents: List[Document], chunk_size: int = 1000, chunk_overlap: int = 200) -> List[Document]:
+        """Split documents into smaller chunks for better retrieval"""
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            length_function=len
+        )
+        
+        chunked_documents = text_splitter.split_documents(documents)
+        print(f"Created {len(chunked_documents)} chunks from {len(documents)} documents")
+        return chunked_documents
+    
+    def create_vectors_and_store(self, documents: List[Document]) -> LangchainPinecone:
+        """Create vector embeddings and store them in Pinecone"""
+        # Initialize Pinecone
+        self.initialize_pinecone()
+        
+        # Create and store vectors
+        vectorstore = LangchainPinecone.from_documents(
+            documents=documents,
+            embedding=self.embeddings,
+            index_name=self.index_name
+        )
+        
+        print(f"Created and stored vectors in Pinecone index: {self.index_name}")
+        return vectorstore
+    
+    def setup_rag_pipeline(self, vectorstore: LangchainPinecone):
+        """Set up a RAG pipeline using the vector store"""
+        # Create retriever
+        retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
+        
+        # Define prompt template
+        template = """
+        You are an AI assistant specialized in answering questions about NVIDIA.
+        Use the following retrieved information to answer the question.
+        If you don't know the answer, just say you don't know.
+        
+        Context:
+        {context}
+        
+        Question: {question}
+        
+        Answer:
+        """
+        prompt = PromptTemplate(template=template, input_variables=["context", "question"])
+        
+        # Define LLM
+        llm = ChatOpenAI(temperature=0.2)
+        
+        # Create RAG chain
+        rag_chain = (
+            {"context": retriever, "question": RunnablePassthrough()}
+            | prompt
+            | llm
+            | StrOutputParser()
+        )
+        
+        return rag_chain
+        
+    def build_langgraph_agent(self, vectorstore):
+        """Build a LangGraph agent that leverages the RAG system"""
+        # Define state
+        class AgentState:
+            """State for the agent"""
+            question: str
+            retrieved_docs: List[Document] = None
+            answer: str = None
+            follow_up_needed: bool = False
+            follow_up_question: str = None
             
-        with open(output_file, "w", encoding="utf-8") as f:
-            f.write(f"# Query\n\n{query}\n\n# Response\n\n{answer}")
+        # Define nodes
+        def retrieve(state: AgentState) -> AgentState:
+            """Retrieve relevant documents"""
+            retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
+            state.retrieved_docs = retriever.invoke(state.question)
+            return state
+            
+        def generate_answer(state: AgentState) -> AgentState:
+            """Generate answer based on retrieved docs"""
+            llm = ChatOpenAI(temperature=0.2)
+            
+            context = "\n\n".join([doc.page_content for doc in state.retrieved_docs])
+            prompt = f"""
+            You are an AI assistant specialized in answering questions about NVIDIA.
+            Use the following retrieved information to answer the question.
+            
+            Context:
+            {context}
+            
+            Question: {state.question}
+            
+            Answer the question based on the context provided. If the context doesn't contain relevant information, 
+            say "I don't have enough information to answer this question."
+            """
+            
+            state.answer = llm.invoke(prompt).content
+            
+            # Determine if a follow-up is needed
+            follow_up_prompt = f"""
+            Based on the question: "{state.question}" and your answer: "{state.answer}", 
+            determine if a follow-up question would be useful to gather more information.
+            If yes, respond with "YES: <follow-up question>". If no, respond with "NO".
+            """
+            
+            follow_up_decision = llm.invoke(follow_up_prompt).content
+            
+            if follow_up_decision.startswith("YES:"):
+                state.follow_up_needed = True
+                state.follow_up_question = follow_up_decision[4:].strip()
+            
+            return state
         
-        print(f"Response saved to: {output_file}")
+        # Create the graph
+        workflow = StateGraph(AgentState)
+        
+        # Add nodes
+        workflow.add_node("retrieve", retrieve)
+        workflow.add_node("generate_answer", generate_answer)
+        
+        # Add edges
+        workflow.add_edge("retrieve", "generate_answer")
+        workflow.add_conditional_edges(
+            "generate_answer",
+            lambda state: "follow_up" if state.follow_up_needed else END,
+            {
+                "follow_up": "retrieve"
+            }
+        )
+        
+        # Set the entry point
+        workflow.set_entry_point("retrieve")
+        
+        # Compile the graph
+        agent = workflow.compile()
+        
+        return agent
     
-    return {
-        "answer": answer, 
-        "query": query, 
-        "usage": usage,
-        "model": model_id
-    }
+    def process_content_directory(self, content_dir: str):
+        """Process content directory: load files, chunk them, create vectors, and build agent"""
+        # Load markdown documents
+        documents = self.load_markdown_files(content_dir)
+        
+        # Chunk documents
+        chunked_documents = self.chunk_documents(documents)
+        
+        # Create vectors and store in Pinecone
+        vectorstore = self.create_vectors_and_store(chunked_documents)
+        
+        # Build and return the LangGraph agent
+        agent = self.build_langgraph_agent(vectorstore)
+        
+        return agent
 
-
-
-
+# Main execution
 if __name__ == "__main__":
-    # Test with some example chunks
-    test_chunks = [
-        "NVIDIA reported a revenue of $13.51 billion for Q1 2023, with a gross margin of 66.8%. The Data Center segment contributed $4.28 billion.",
-        "NVIDIA's gaming revenue was $2.24 billion, down 38% from the previous year but up 22% from the previous quarter.",
-        "NVIDIA's research and development expenses were $1.8 billion for the quarter, an increase of 40% from the previous year."
-    ]
+    # Initialize the agent
+    rag_agent = RAGPineconeAgent()
     
-    test_metadata = [
-        {"source": "NVIDIA Q1 2023 Report", "similarity_score": 0.92, "year": "2023", "quarter": "Q1"},
-        {"source": "NVIDIA Q1 2023 Report", "similarity_score": 0.85, "year": "2023", "quarter": "Q1"},
-        {"source": "NVIDIA Q1 2023 Report", "similarity_score": 0.78, "year": "2023", "quarter": "Q1"}
-    ]
+    # Process the WebAgent content directory
+    content_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+                              "WebAgent", "content")
     
-    test_query = "How much did the data center segment contribute to NVIDIA's revenue in Q1 2023?"
+    print(f"Processing content from: {content_dir}")
     
-    # Test with default model (gpt-3.5-turbo)
-    response = generate_response(
-        chunks=test_chunks,
-        query=test_query,
-        metadata=test_metadata,
-        model_id="gpt-3.5-turbo"
-    )
+    # Build the agent
+    agent = rag_agent.process_content_directory(content_dir)
     
-    print("\nResponse Preview:")
-    print(response["answer"][:500] + "..." if len(response["answer"]) > 500 else response["answer"])
-    print(f"\nToken Usage: {response['usage']}")
+    # Example usage
+    print("\nAgent created successfully! You can now query the NVIDIA content.")
+    while True:
+        user_question = input("\nEnter your question about NVIDIA (or 'exit' to quit): ")
+        if user_question.lower() == "exit":
+            break
+            
+        # Run the agent
+        result = agent.invoke({"question": user_question})
+        print("\nAnswer:", result.answer)
+        
+        if result.follow_up_needed:
+            print("\nFollow-up question:", result.follow_up_question)
+            follow_up = input("Would you like to ask this follow-up? (y/n): ")
+            if follow_up.lower() == "y":
+                result = agent.invoke({"question": result.follow_up_question})
+                print("\nAnswer:", result.answer)

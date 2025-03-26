@@ -57,16 +57,24 @@ mistral:
 # SerAPI Web API
 NvidiaWebAgent:
 	@echo "Running NVIDIA Web Search Agent..."
-	poetry run python WebAgent/nvidia_search_agent.py
+	poetry run python agents/websearch_agent.py
 
 webagent-news:
 	@echo "Running NVIDIA News Search..."
-	poetry run python -c "from WebAgent.nvidia_search_agent import NvidiaWebSearchAgent; import json; agent = NvidiaWebSearchAgent(); results = agent.search_news(num_results=5); print(json.dumps(results, indent=2))"
+	poetry run python -c "from agents.websearch_agent import NvidiaWebSearchAgent; import json; agent = NvidiaWebSearchAgent(); results = agent.search_nvidia_news(days_ago=7); print(json.dumps(results, indent=2))"
 
 webagent-financial:
 	@echo "Running NVIDIA Financial Search..."
-	poetry run python -c "from WebAgent.nvidia_search_agent import NvidiaWebSearchAgent; import json; agent = NvidiaWebSearchAgent(); results = agent.search_financial_info(); print(json.dumps(results, indent=2))"
+	poetry run python -c "from agents.websearch_agent import NvidiaWebSearchAgent; import json; agent = NvidiaWebSearchAgent(); results = agent.search_nvidia_financial(); print(json.dumps(results, indent=2))"
 
 webagent-quarterly:
 	@echo "Running NVIDIA Quarterly Report Search..."
-	poetry run python -c "from WebAgent.nvidia_search_agent import NvidiaWebSearchAgent; import json; agent = NvidiaWebSearchAgent(); results = agent.search_quarterly_report_info(year=2023, quarter=4); print(json.dumps(results, indent=2))"
+	poetry run python -c "from agents.websearch_agent import NvidiaWebSearchAgent; import json; agent = NvidiaWebSearchAgent(); results = agent.search_quarterly_report_info(year=2023, quarter=4); print(json.dumps(results, indent=2))"
+
+webagent-general:
+	@echo "Running NVIDIA General Information Search..."
+	poetry run python -c "from agents.websearch_agent import NvidiaWebSearchAgent; import json; agent = NvidiaWebSearchAgent(); results = agent.search_nvidia_general(); print(json.dumps(results, indent=2))"
+
+webagent-report:
+	@echo "Generating comprehensive NVIDIA research report..."
+	poetry run python -c "from agents.websearch_agent import NvidiaWebSearchAgent; import datetime; agent = NvidiaWebSearchAgent(); current_year = datetime.datetime.now().year; current_quarter = (datetime.datetime.now().month - 1) // 3 + 1; report = agent.generate_research_report(year=current_year, quarter=current_quarter); print(f'Report saved to: {report.get(\"saved_to\", \"unknown path\")}');"

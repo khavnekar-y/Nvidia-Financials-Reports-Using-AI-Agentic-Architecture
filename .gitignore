@@ -180,10 +180,6 @@ log/*.png
 Q1.md
 
 # chromadb 
-chroma_db/*
-uploads/
 *.md
-!directory_structure_for_ragpipeline.md
-!chromadb_pipeline_filesturcture.md
-!pinecone_pipeline_workflow.md
-chunk_storage/*
+Rag_Agents/
+web_agent/
