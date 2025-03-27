@@ -26,14 +26,16 @@ pinecone-test:
 llm:
 	poetry run python .\Backend\litellm_query_generator.py
 
-
+ragagent:
+	@echo "Running RAG Agent..."
+	poetry run python .\agents\rag_agent.py
 
 # Build commands
 fastapibuild:
-    docker build --platform=linux/amd64 -t gcr.io/gen-lang-client-0567410120/fastapi-agentic-app .
+	docker build --platform=linux/amd64 -t gcr.io/gen-lang-client-0567410120/fastapi-agentic-app .
 
 streamlitbuild:
-    docker build --platform=linux/amd64 -t gcr.io/gen-lang-client-0567410120/streamlit-agentic-app .
+	docker build --platform=linux/amd64 -t gcr.io/gen-lang-client-0567410120/streamlit-agentic-app .
 
 # Run commands
 fastapirun:
@@ -114,6 +116,6 @@ webagent-report:
 	@echo "Generating comprehensive NVIDIA research report..."
 	poetry run python -c "from agents.websearch_agent import NvidiaWebSearchAgent; import datetime; agent = NvidiaWebSearchAgent(); current_year = datetime.datetime.now().year; current_quarter = (datetime.datetime.now().month - 1) // 3 + 1; report = agent.generate_research_report(year=current_year, quarter=current_quarter); print(f'Report saved to: {report.get(\"saved_to\", \"unknown path\")}');"
 
-langgraph:
+pipeline:
 	@echo "Running Language Graph Agent..."
 	poetry run python .\langGraph\pipeline.py

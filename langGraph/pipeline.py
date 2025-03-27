@@ -1,150 +1,178 @@
-# langgraph_pipeline/pipeline.py
 import os
-import io
-import base64
-from typing import TypedDict, Dict, Any, List, Annotated, Union
+import sys
+from typing import TypedDict, Dict, Any, List, Annotated, Union, Callable
 from langchain_core.agents import AgentAction, AgentFinish
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_openai import ChatOpenAI
 import operator
-import sys
+from langgraph.graph import StateGraph, END
+from graphviz import Digraph
+from langchain_core.runnables import RunnableLambda
+from langchain_core.tools import tool
+# import warnings
+# from langchain_core.globals import set_warning_filter
+# set_warning_filter("ignore")
+# Import agents
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from agents.websearch_agent import search_quarterly
+from agents.rag_agent import search_all_namespaces, search_specific_quarter
+from agents.snowflake_agent import query_snowflake
 
-from langgraph.graph import StateGraph, END
-from langchain_core.runnables import RunnableLambda
-
-# Enhanced state with chat history support
-class NvidiaAgentState(TypedDict, total=False):
-    # Core input
+class NvidiaGPTState(TypedDict, total=False):
     input: str
-    question: str  # Main research question
-    year: int      # Target year
-    quarter: int   # Target quarter
-    
-    # Agent outputs
+    question: str
+    year: int
+    quarter: int
     web_output: str
-    
-    # Conversation tracking
+    rag_output: str
+    snowflake_output: str
     chat_history: List[BaseMessage]
     intermediate_steps: Annotated[List[tuple[AgentAction, str]], operator.add]
-    
-    # Final output
     final_report: str
 
-def web_search_agent(state: NvidiaAgentState) -> Dict[str, Any]:
-    """Web search agent for real-time information"""
-    year = state.get("year", 2023)
-    quarter = state.get("quarter", 1)
-    
-    # Call web search function
-    result = search_quarterly(year, quarter)
-    
-    # Record the action
-    action = AgentAction(
-        tool="nvidia_web_search", 
-        tool_input={"year": year, "quarter": quarter},
-        log=f"Searching web for NVIDIA Q{quarter} {year} information"
-    )
-    
+# Node Functions
+def start_node(state: NvidiaGPTState) -> Dict:
+    """Initial node that processes the input"""
+    return {"question": state["input"]}
+
+def web_search_node(state: NvidiaGPTState) -> Dict:
+    """Execute web search"""
+    result = search_quarterly(state["question"])
+    return {"web_output": result}
+
+def rag_search_node(state: NvidiaGPTState) -> Dict:
+    """Execute RAG search"""
+    result = search_all_namespaces(state["question"])
+    return {"rag_output": result}
+
+def snowflake_node(state: NvidiaGPTState) -> Dict:
+    """Execute Snowflake query"""
+    result = query_snowflake(state["question"])
+    return {"snowflake_output": result}
+
+@tool("final_report")
+def final_report(
+    introduction: str,
+    key_findings: List[str],
+    analysis: str,
+    conclusion: str,
+    sources: List[str]
+) -> Dict:
+    """Generates final report in structured format"""
     return {
-        "web_output": result,
-        "intermediate_steps": [(action, result)],
-        "chat_history": state.get("chat_history", []) + [
-            AIMessage(content=f"I've gathered real-time web information about NVIDIA's Q{quarter} {year} results.")
-        ]
+        "introduction": introduction,
+        "key_findings": key_findings,
+        "analysis": analysis,
+        "conclusion": conclusion,
+        "sources": sources
     }
 
-def report_generator(state: NvidiaAgentState) -> Dict[str, Any]:
-    """Generates the final report based only on web search results"""
-    question = state.get("question", state.get("input", "NVIDIA performance analysis"))
-    year = state.get("year", 2023)
-    quarter = state.get("quarter", 1)
-    
-    web_result = state.get("web_output", "No web search results available.")
-    
-    # Create focused report with just web search results
-    report = f"""
-NVIDIA WEB SEARCH REPORT (Q{quarter} {year})
-============================================
-
-QUESTION: {question}
-
-REAL-TIME INDUSTRY INSIGHTS:
----------------------------
-{web_result}
-"""
-    
+def final_report_node(state: NvidiaGPTState) -> Dict:
+    """Generate final report combining all sources"""
     return {
-        "final_report": report,
-        "chat_history": state.get("chat_history", []) + [
-            AIMessage(content="I've compiled web search information into a report.")
-        ]
+        "final_report": final_report(
+            introduction=f"Analysis of query: {state['question']}",
+            key_findings=[
+                state.get("web_output", "No web data"),
+                state.get("rag_output", "No RAG data"),
+                state.get("snowflake_output", "No Snowflake data")
+            ],
+            analysis="Combined analysis of all sources",
+            conclusion="Final conclusions based on all available data",
+            sources=["Web Search", "RAG Search", "Snowflake Query"]
+        )
     }
-def generate_graph_diagram(graph, filename="nvidia_workflow_diagram.png"):
-    """Generate and save a PNG visualization of the graph"""
+
+# Initialize NvidiaGPT
+def initialize_nvidia_gpt():
+    system_prompt = """You are NvidiaGPT, an AI assistant specialized in NVIDIA financial analysis.
+    You have access to multiple data sources and tools. Use them wisely to provide comprehensive analysis."""
+    
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", system_prompt),
+        MessagesPlaceholder(variable_name="chat_history"),
+        ("user", "{input}"),
+        ("assistant", "scratchpad: {scratchpad}"),
+    ])
+
+    llm = ChatOpenAI(model="gpt-4", temperature=0)
+    tools = [search_quarterly, search_all_namespaces, search_specific_quarter, 
+             query_snowflake, final_report]
+    
+    return prompt.partial(llm=llm).bind_tools(tools, tool_choice="any")
+
+def generate_workflow_diagram(filename="nvidia_workflow.png"):
+    """Generates and saves workflow diagram"""
+    dot = Digraph(comment='NVIDIA Analysis Pipeline')
+    dot.attr(rankdir='LR')
+    
+    # Add nodes
+    dot.node('start', 'Start')
+    dot.node('web_search', 'Web Search')
+    dot.node('rag_search', 'RAG Search')
+    dot.node('snowflake', 'Snowflake')
+    dot.node('report_generator', 'Report Generator')
+    
+    # Add edges
+    dot.edge('start', 'web_search')
+    dot.edge('start', 'rag_search')
+    dot.edge('start', 'snowflake')
+    dot.edge('web_search', 'report_generator')
+    dot.edge('rag_search', 'report_generator')
+    dot.edge('snowflake', 'report_generator')
+    
+    # Generate diagram
     try:
-        import os
-        
-        # Get PNG data from compiled graph
-        png_data = graph.get_graph().draw_png()
-        
-        # Save to file
-        output_path = os.path.join(os.path.dirname(__file__), filename)
-        with open(output_path, "wb") as f:
-            f.write(png_data)
-            
-        print(f"Graph visualization saved to {output_path}")
-        return output_path
-    
+        dot.render(filename, format='png', cleanup=True)
+        return f"{filename}.png"
     except Exception as e:
-        print(f"Error generating graph visualization: {e}")
+        print(f"Warning: Could not generate diagram: {e}")
         return None
 
-
-def build_graph():
-    """Builds and returns the compiled workflow graph with just web search"""
-    # Initialize the graph with our state
-    builder = StateGraph(NvidiaAgentState)
+def build_pipeline():
+    """Build and return the compiled pipeline"""
+    graph = StateGraph(NvidiaGPTState)
     
-    # Add only the web search agent and report generator
-    builder.add_node("WEB_AGENT", RunnableLambda(web_search_agent))
-    builder.add_node("REPORT_GENERATOR", RunnableLambda(report_generator))
+    # Add nodes with proper callable functions
+    graph.add_node("start", start_node)
+    graph.add_node("web_search", web_search_node)
+    graph.add_node("rag_search", rag_search_node)
+    graph.add_node("snowflake", snowflake_node)
+    graph.add_node("report_generator", final_report_node)  # Changed from "final_report"
     
-    # Create simplified flow
-    builder.set_entry_point("WEB_AGENT")
-    builder.add_edge("WEB_AGENT", "REPORT_GENERATOR")
-    builder.add_edge("REPORT_GENERATOR", END)
-    diagram_path = generate_graph_diagram(builder)
+    # Set flow
+    graph.set_entry_point("start")
+    graph.add_edge("start", "web_search")
+    graph.add_edge("start", "rag_search")
+    graph.add_edge("start", "snowflake")
+    graph.add_edge("web_search", "report_generator")  # Changed
+    graph.add_edge("rag_search", "report_generator")  # Changed
+    graph.add_edge("snowflake", "report_generator")  # Changed
+    graph.add_edge("report_generator", END)  # Changed
     
-    # Compile the graph
-    graph = builder.compile()
-    
-    return graph
+    return graph.compile()
 
 if __name__ == "__main__":
-    # Build the graph
-    graph = build_graph()
-    
-    # Create initial state with a sample question
-    initial_state = {
-        "question": "What are the key factors driving NVIDIA's performance?",
-        "year": 2023,
-        "quarter": 2,
-        "chat_history": [
-            HumanMessage(content="What are the key factors driving NVIDIA's performance?")
-        ],
-        "intermediate_steps": []
-    }
-    
-    # Execute the workflow
-    result = graph.invoke(initial_state)
-    
-    print("\n📊 FINAL WEB SEARCH REPORT:\n")
-    print(result.get("final_report"))
-    
-    # Show conversation history
-    print("\n💬 CONVERSATION HISTORY:\n")
-    for msg in result.get("chat_history", []):
-        role = "User" if isinstance(msg, HumanMessage) else "AI"
-        print(f"{role}: {msg.content}")
-    # print(f"\nGraph diagram saved to {diagram_path}")
+    try:
+        # Generate workflow diagram (one-time)
+        # diagram_path = generate_workflow_diagram()
+        # if diagram_path:
+        #     print(f"Workflow diagram saved to: {diagram_path}")
+        
+        # Initialize and run pipeline
+        pipeline = build_pipeline()
+        result = pipeline.invoke({
+            "input": "Analyze NVIDIA's financial performance in Q4 2023",
+            "chat_history": [],
+            "intermediate_steps": []
+        })
+        
+        print("\nAnalysis Results:")
+        print(result.get("final_report"))
+        
+    except Exception as e:
+        print(f"Error running pipeline: {str(e)}")
+        import traceback
+        print("\nFull error traceback:")
+        print(traceback.format_exc())
