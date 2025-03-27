@@ -6,6 +6,9 @@ This repository implements a multi-agent research assistant integrating:
 - **Web Search Agent:** Uses SerpAPI for real-time web search related to NVIDIA.
 - **Snowflake Agent:** Queries structured NVIDIA valuation measures stored in Snowflake and generates summary charts.
 
+## NVIDIA Agentic Architecture Workflow
+![alt text](nvidia_workflow.png)
+
 ## Setup
 
 1. **Environment Variables:**  

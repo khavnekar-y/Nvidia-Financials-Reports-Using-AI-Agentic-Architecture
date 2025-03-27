@@ -18,8 +18,36 @@ QUERY_URL = f"{API_URL}/research_report"
 # Sidebar Navigation
 # -------------------------------
 st.sidebar.title("NVIDIA Research Assistant")
-page = st.sidebar.radio("Navigation", 
-                         ["Home", "Combined Report", "About"])
+# Initialize session state for navigation if not already set
+if 'current_page' not in st.session_state:
+    st.session_state.current_page = "Home"
+
+# Custom CSS to make buttons more visually pleasing
+st.sidebar.markdown("""
+<style>
+    div.stButton > button {
+        width: 100%;
+        font-weight: bold;
+        height: 3em;
+        margin-bottom: 10px;
+        border-radius: 5px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Create navigation buttons
+for page_name in ["Home", "Combined Report", "About"]:
+    if st.sidebar.button(
+        page_name,
+        key=f"nav_{page_name}",
+        type="primary" if st.session_state.current_page == page_name else "secondary",
+        use_container_width=True
+    ):
+        st.session_state.current_page = page_name
+        st.rerun()
+
+# Set the current page from session state
+page = st.session_state.current_page
 
 # -------------------------------
 # Home Page

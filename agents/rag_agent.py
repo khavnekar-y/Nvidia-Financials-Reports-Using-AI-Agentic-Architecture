@@ -1,3 +1,4 @@
+import logging
 from langchain_core.tools import tool
 import boto3
 import json
@@ -89,7 +90,6 @@ def search_all_namespaces(query: str, alpha: float = 0.5):
     
     for namespace in namespaces:
         try:
-            print(f"\nQuerying namespace: {namespace}")
             xc = index.query(
                 vector=xq,
                 top_k=5,
@@ -98,12 +98,12 @@ def search_all_namespaces(query: str, alpha: float = 0.5):
                 alpha=alpha,
             )
             if xc["matches"]:
-                print(f"Found {len(xc['matches'])} matches in {namespace}")
+                
                 results.extend(xc["matches"])
             else:
-                print(f"No matches found in {namespace}")
+                logging.info(f"No results found in namespace {namespace}.")
         except Exception as e:
-            print(f"Error in namespace {namespace}: {str(e)}")
+            logging.error(f"Error searching namespace {namespace}: {str(e)}")
             continue
     
     print(f"\nTotal results found: {len(results)}")

@@ -14,7 +14,7 @@ snowflake:
 	poetry run python .\agents\snowflake_agent.py
 	
 backend:
-	poetry run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+	poetry run uvicorn main:app --host 0.0.0.0 --port 8080 --reload
 frontend:
 	poetry run streamlit run streamlit_app.py --server.port 8501
 pinecone:
@@ -39,50 +39,52 @@ streamlitbuild:
 
 # Run commands
 fastapirun:
-    docker run --name fastapi-app -p 8080:8080 gcr.io/gen-lang-client-0567410120/fastapi-agentic-app
+	docker run --name fastapi-app -p 8080:8080 gcr.io/gen-lang-client-0567410120/fastapi-agentic-app
 
 streamlitrun:
     docker run --name streamlit-app -p 8501:8501 gcr.io/gen-lang-client-0567410120/streamlit-agentic-app
 
 # Stop commands
 fastapistop:
-    docker stop fastapi-app
+	docker stop fastapi-app
 
 streamlitstop:
-    docker stop streamlit-app
+	docker stop streamlit-app
 
 # Remove containers
 fastapiremove:
-    docker rm fastapi-app
+	docker rm fastapi-app
 
 streamlitremove:
-    docker rm streamlit-app
+	docker rm streamlit-app
 
 # Remove images
 fastapiimage-remove:
-    docker rmi gcr.io/gen-lang-client-0567410120/fastapi-agentic-app
+	docker rmi gcr.io/gen-lang-client-0567410120/fastapi-agentic-app
 
 streamlitimage-remove:
-    docker rmi gcr.io/gen-lang-client-0567410120/streamlit-agentic-app
+	docker rmi gcr.io/gen-lang-client-0567410120/streamlit-agentic-app
 
 # Push images to GCR
 fastapipush:
-    docker push gcr.io/gen-lang-client-0567410120/fastapi-agentic-app
+	docker push gcr.io/gen-lang-client-0567410120/fastapi-agentic-app
 
 streamlitpush:
-    docker push gcr.io/gen-lang-client-0567410120/streamlit-agentic-app
+	docker push gcr.io/gen-lang-client-0567410120/streamlit-agentic-app
 
 # Pull images from GCR
 fastapipull:
-    docker pull gcr.io/gen-lang-client-0567410120/fastapi-agentic-app
+	docker pull gcr.io/gen-lang-client-0567410120/fastapi-agentic-app
 
 streamlitpull:
-    docker pull gcr.io/gen-lang-client-0567410120/streamlit-agentic-app
+	docker pull gcr.io/gen-lang-client-0567410120/streamlit-agentic-app
 
 # Combined commands
-cleanup: fastapistop streamlitstop fastapiremove streamlitremove
+cleanup: 
+	fastapistop streamlitstop fastapiremove streamlitremove
 
-rebuild: cleanup fastapibuild streamlitbuild
+rebuild: 
+	cleanup fastapibuild streamlitbuild
 
 fastapideploy:
 	gcloud run deploy fastapi-agentic-app --image gcr.io/gen-lang-client-0567410120/fastapi-agentic-app --platform managed --region us-central1 --allow-unauthenticated
