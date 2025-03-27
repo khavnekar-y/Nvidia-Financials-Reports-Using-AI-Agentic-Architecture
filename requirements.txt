@@ -15,3 +15,4 @@ serpapi
 graphviz
 langchain_openai
 ipykernel
+pyarrow<19.0.0
