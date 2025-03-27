@@ -27,22 +27,65 @@ llm:
 
 
 
-# Docker commands
-build:
-	docker build -t my-app .
+# Build commands
+fastapibuild:
+    docker build --platform=linux/amd64 -t gcr.io/gen-lang-client-0567410120/fastapi-agentic-app .
 
-run:
-	docker run -p 8000:8000 my-app
+streamlitbuild:
+    docker build --platform=linux/amd64 -t gcr.io/gen-lang-client-0567410120/streamlit-agentic-app .
 
-stop:
-	docker stop my-app
+# Run commands
+fastapirun:
+    docker run --name fastapi-app -p 8080:8080 gcr.io/gen-lang-client-0567410120/fastapi-agentic-app
 
-remove:
-	docker rm my-app
+streamlitrun:
+    docker run --name streamlit-app -p 8501:8501 gcr.io/gen-lang-client-0567410120/streamlit-agentic-app
 
-image-remove:
-	docker rmi my-app
+# Stop commands
+fastapistop:
+    docker stop fastapi-app
 
+streamlitstop:
+    docker stop streamlit-app
+
+# Remove containers
+fastapiremove:
+    docker rm fastapi-app
+
+streamlitremove:
+    docker rm streamlit-app
+
+# Remove images
+fastapiimage-remove:
+    docker rmi gcr.io/gen-lang-client-0567410120/fastapi-agentic-app
+
+streamlitimage-remove:
+    docker rmi gcr.io/gen-lang-client-0567410120/streamlit-agentic-app
+
+# Push images to GCR
+fastapipush:
+    docker push gcr.io/gen-lang-client-0567410120/fastapi-agentic-app
+
+streamlitpush:
+    docker push gcr.io/gen-lang-client-0567410120/streamlit-agentic-app
+
+# Pull images from GCR
+fastapipull:
+    docker pull gcr.io/gen-lang-client-0567410120/fastapi-agentic-app
+
+streamlitpull:
+    docker pull gcr.io/gen-lang-client-0567410120/streamlit-agentic-app
+
+# Combined commands
+cleanup: fastapistop streamlitstop fastapiremove streamlitremove
+
+rebuild: cleanup fastapibuild streamlitbuild
+
+fastapideploy:
+	gcloud run deploy fastapi-agentic-app --image gcr.io/gen-lang-client-0567410120/fastapi-agentic-app --platform managed --region us-central1 --allow-unauthenticated
+
+streamlitdeploy:
+	gcloud run deploy streamlit-agentic-app --image gcr.io/gen-lang-client-0567410120/streamlit-agentic-app --platform managed --region us-central1 --allow-unauthenticated
 
 
 # SerAPI Web API
@@ -72,4 +115,4 @@ webagent-report:
 
 langgraph:
 	@echo "Running Language Graph Agent..."
-	poetry run python .\langgraph_pipeline.py\pipeline.py
+	poetry run python .\langGraph\pipeline.py

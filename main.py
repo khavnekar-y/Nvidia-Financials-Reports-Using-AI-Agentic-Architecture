@@ -2,7 +2,10 @@
 import uvicorn
 from fastapi import FastAPI
 from pydantic import BaseModel
-from langgraph_pipeline.pipeline import build_graph
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
+from langGraph.pipeline import build_graph
 
 app = FastAPI()
 graph = build_graph()
@@ -22,5 +25,4 @@ def research_report(request: QueryRequest):
     result = graph.invoke(state)
     return {"final_report": result.get("final_report")}
 
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+

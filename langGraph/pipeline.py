@@ -119,11 +119,11 @@ def build_graph():
     # Compile the graph
     graph = builder.compile()
     
-    return graph,diagram_path
+    return graph
 
 if __name__ == "__main__":
     # Build the graph
-    graph,diagram_path = build_graph()
+    graph = build_graph()
     
     # Create initial state with a sample question
     initial_state = {
@@ -147,4 +147,4 @@ if __name__ == "__main__":
     for msg in result.get("chat_history", []):
         role = "User" if isinstance(msg, HumanMessage) else "AI"
         print(f"{role}: {msg.content}")
-    print(f"\nGraph diagram saved to {diagram_path}")
+    # print(f"\nGraph diagram saved to {diagram_path}")
