@@ -236,7 +236,7 @@ if __name__ == "__main__":
             "intermediate_steps": []
         })
         
-        print("\nAnalysis Results:")
+        print("\nAnalysis Results:\nAccessing Snowflake, RAG and Web Agents")
         print(result.get("final_report"))
         
     except Exception as e:

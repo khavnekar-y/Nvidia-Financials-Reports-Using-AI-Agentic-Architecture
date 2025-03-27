@@ -60,8 +60,9 @@ if page == "Home":
     This application integrates multiple agents to produce comprehensive research reports on NVIDIA:
     
     - **RAG Agent:** Retrieves historical quarterly reports from Pinecone with metadata filtering (Year/Quarter).
-    - **Web Search Agent:** Provides real-time insights via SerpAPI.
     - **Snowflake Agent:** Queries structured valuation metrics from Snowflake and displays charts.
+    - **Web Search Agent:** Provides real-time insights via SerpAPI.
+    
     
     Use the navigation panel to generate a combined research report or learn more about the application.
     """)
@@ -228,6 +229,6 @@ elif page == "About":
     - Adjust the research question, Year, and Quarter as needed.
     - The app returns a consolidated report that includes historical, real-time, and structured financial insights.
     
-    **Developed by:** Your Team Name
+    **Developed by:** Team 4
     """)
 
