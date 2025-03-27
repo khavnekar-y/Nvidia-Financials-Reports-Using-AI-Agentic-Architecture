@@ -14,3 +14,4 @@ matplotlib
 serpapi
 graphviz
 langchain_openai
+pyarrow<19.0.0
