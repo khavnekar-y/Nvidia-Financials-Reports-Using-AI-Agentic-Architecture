@@ -225,6 +225,8 @@ if page == "Home":
     - **RAG Agent:** Retrieves historical quarterly reports from Pinecone (Year/Quarter).
     - **Web Search Agent:** Provides real-time insights via SerpAPI.
     - **Snowflake Agent:** Queries structured valuation metrics from Snowflake and displays charts.
+    - **Web Search Agent:** Provides real-time insights via SerpAPI.
+    
     
     Use the navigation panel to generate a combined research report or learn more about the application.
     """)
@@ -367,6 +369,6 @@ elif page == "About":
     - Adjust the Year and Quarter sliders in the sidebar.
     - Enter your question at the bottom, then click the circular arrow button to submit.
     
-    **Developed by:** Your Team Name
+    **Developed by:** Team 4
     """)
 
