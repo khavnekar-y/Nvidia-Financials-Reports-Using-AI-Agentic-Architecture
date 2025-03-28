@@ -33,40 +33,40 @@ def get_valuation_summary(query: str = None) -> dict:
     """Get NVIDIA valuation metrics from Snowflake."""
     query = "SELECT * FROM Valuation_Measures"
     df = query_snowflake(query)
-   
+    
     # Transform the DataFrame into a long format
     df_long = df.melt(id_vars=["DATE"], var_name="metric", value_name="value")
-   
+    
     # Truncate the DataFrame to reduce the size of the summary
-    df_long = df_long.head(5)  # Limit to the first 5 rows for the summary
-   
+    df_long = df_long.head(10)  # Limit to the first 10 rows for the summary
+    
     # Generate text summary
     summary = df_long.to_string(index=False)
     print(f"Summary length: {len(summary)} characters")  # Debugging
     print(f"Summary content:\n{summary}")  # Debugging
-   
+    
     # Generate chart
     plt.figure(figsize=(10, 6))
     for date in df["DATE"].unique():
         subset = df_long[df_long["DATE"] == date]
         plt.bar(subset["metric"], subset["value"], label=str(date))
-   
+    
     plt.xlabel("Metric")
     plt.ylabel("Value")
     plt.title("NVIDIA Valuation Metrics Over Time")
     plt.xticks(rotation=45, ha="right")
     plt.legend(title="Date")
     plt.tight_layout()
-   
+    
     # Save chart as a .png file
     chart_file_path = "nvidia_valuation_metrics.png"
     plt.savefig(chart_file_path, format="png")
     plt.close()
-   
+    
     # Convert chart to base64
     with open(chart_file_path, "rb") as img_file:
         chart_base64 = base64.b64encode(img_file.read()).decode('utf-8')
-   
+    
     return {"summary": summary, "chart": chart_base64}
  
 # Create LangChain tool for the Snowflake agent
@@ -90,15 +90,9 @@ agent = initialize_agent(
  
 def get_ai_analysis():
     """Get AI-generated analysis of NVIDIA metrics"""
-    prompt = """You are an AI agent tasked with analyzing NVIDIA financial metrics.
-    Use the nvidia_financial_metrics tool to get the data and provide a summary of key insights.
-    Your response must follow this format:
-   
-    Thought: [Your thought process]
-    Action: [The action you will take, e.g., "nvidia_financial_metrics"]
-    Action Input: [The input for the action, if any]
-    """
-   
+    prompt = """Compare the NVIDIA financial metrics and provide a concise summary of key insights. 
+    Limit your response to 100 words."""
+    
     for attempt in range(3):  # Retry up to 3 times
         try:
             response = agent.run(prompt)
