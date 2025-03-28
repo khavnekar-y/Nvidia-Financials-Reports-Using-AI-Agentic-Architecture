@@ -7,7 +7,8 @@ This repository implements a multi-agent research assistant integrating:
 - **Snowflake Agent:** Queries structured NVIDIA valuation measures stored in Snowflake and generates summary charts.
 
 ## NVIDIA Agentic Architecture Workflow
-![alt text](nvidia_workflow.png)
+![alt_text](architecture.png)
+
 
 ## Project Structure
 ```
@@ -49,6 +50,8 @@ project/
 
 Architecture Components:
 ----------------------
+![alt text](nvidia_workflow.png)
+
 1. State Management
    - Uses NvidiaGPTState TypedDict for maintaining pipeline state
    - Tracks inputs, intermediate results, and final outputs
