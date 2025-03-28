@@ -4,116 +4,128 @@ import snowflake.connector
 import pandas as pd
 import matplotlib.pyplot as plt
 import io
+from io import BytesIO
 import base64
 from langchain.tools import Tool
 from langchain.agents import AgentType, initialize_agent
-from langchain_openai import ChatOpenAI  # Updated import
+from langchain_anthropic import ChatAnthropic
 from dotenv import load_dotenv
 import time
+from typing import Dict, Any
+
+load_dotenv(override=True)
+
+# Initialize Snowflake connection
+conn = snowflake.connector.connect(
+    user=os.environ.get('SNOWFLAKE_USER'),
+    password=os.environ.get('SNOWFLAKE_PASSWORD'),
+    account=os.environ.get('SNOWFLAKE_ACCOUNT'),
+    warehouse=os.environ.get('SNOWFLAKE_WAREHOUSE'),
+    database=os.environ.get('SNOWFLAKE_DATABASE'),
+    schema=os.environ.get('SNOWFLAKE_SCHEMA')
+)
  
-load_dotenv()
- 
-def query_snowflake(query: str) -> pd.DataFrame:
-    """Execute query against Snowflake."""
-    conn = snowflake.connector.connect(
-        user=os.getenv("SNOWFLAKE_USER"),
-        password=os.getenv("SNOWFLAKE_PASSWORD"),
-        account=os.getenv("SNOWFLAKE_ACCOUNT"),
-        warehouse=os.getenv("SNOWFLAKE_WAREHOUSE"),
-        database=os.getenv("SNOWFLAKE_DATABASE"),
-        schema=os.getenv("SNOWFLAKE_SCHEMA")
-    )
+def query_snowflake(question: str) -> Dict:
+    """Query Snowflake with predefined queries based on question intent"""
+    # Default query for financial metrics
+    base_query = "SELECT * FROM Valuation_Measures ORDER BY DATE DESC LIMIT 5"
+    
     try:
-        df = pd.read_sql(query, conn)
-    finally:
-        conn.close()
-    return df
+        # Execute query and get DataFrame
+        df = pd.read_sql(base_query, conn)
+        
+        # Generate summary
+        summary = {
+            "metrics": df.to_dict('records'),
+            "latest_date": str(df['DATE'].max()),
+            "query_status": "success"
+        }
+        
+        return summary
+        
+    except Exception as e:
+        return {
+            "error": str(e),
+            "query_status": "failed"
+        }
+
  
-def get_valuation_summary(query: str = None) -> dict:
-    """Get NVIDIA valuation metrics from Snowflake."""
-    query = "SELECT * FROM Valuation_Measures"
-    df = query_snowflake(query)
-   
-    # Transform the DataFrame into a long format
-    df_long = df.melt(id_vars=["DATE"], var_name="metric", value_name="value")
-   
-    # Truncate the DataFrame to reduce the size of the summary
-    df_long = df_long.head(5)  # Limit to the first 5 rows for the summary
-   
-    # Generate text summary
-    summary = df_long.to_string(index=False)
-    print(f"Summary length: {len(summary)} characters")  # Debugging
-    print(f"Summary content:\n{summary}")  # Debugging
-   
-    # Generate chart
-    plt.figure(figsize=(10, 6))
-    for date in df["DATE"].unique():
-        subset = df_long[df_long["DATE"] == date]
-        plt.bar(subset["metric"], subset["value"], label=str(date))
-   
-    plt.xlabel("Metric")
-    plt.ylabel("Value")
-    plt.title("NVIDIA Valuation Metrics Over Time")
-    plt.xticks(rotation=45, ha="right")
-    plt.legend(title="Date")
-    plt.tight_layout()
-   
-    # Save chart as a .png file
-    chart_file_path = "nvidia_valuation_metrics.png"
-    plt.savefig(chart_file_path, format="png")
-    plt.close()
-   
-    # Convert chart to base64
-    with open(chart_file_path, "rb") as img_file:
-        chart_base64 = base64.b64encode(img_file.read()).decode('utf-8')
-   
-    return {"summary": summary, "chart": chart_base64}
- 
+def get_valuation_summary(query:str=None) -> dict:
+    """Get NVIDIA valuation metrics visualization"""
+    try:
+        # Use base query
+        df = pd.read_sql("SELECT * FROM Valuation_Measures ORDER BY DATE DESC LIMIT 5", conn)
+        
+        # Generate visualization
+        plt.figure(figsize=(10, 6))
+        for date in df["DATE"].unique():
+            subset = df[df["DATE"] == date]
+            plt.bar(subset.columns[1:], subset.iloc[0, 1:], label=str(date))
+        
+        plt.xlabel("Metric")
+        plt.ylabel("Value")
+        plt.title("NVIDIA Valuation Metrics")
+        plt.xticks(rotation=45)
+        plt.legend()
+        
+        # Convert plot to base64
+        buf = BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight')
+        buf.seek(0)
+        img_str = base64.b64encode(buf.getvalue()).decode()
+        
+        return {
+            "chart": img_str,
+            "summary": df.to_string(),
+            "status": "success"
+        }
+        
+    except Exception as e:
+        return {
+            "error": str(e),
+            "status": "failed"
+        }
+         
 # Create LangChain tool for the Snowflake agent
 snowflake_tool = Tool(
     name="nvidia_financial_metrics",
     description="Get NVIDIA financial valuation metrics from Snowflake",
     func=get_valuation_summary
 )
- 
-# Initialize OpenAI model with ChatOpenAI
-llm = ChatOpenAI(model="gpt-4o", temperature=0)  # Use "gpt-4" if available
- 
-# Create agent with the tool
-agent = initialize_agent(
-    tools=[snowflake_tool],
-    llm=llm,
-    agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-    verbose=True,
-    handle_parsing_errors=True
-)
+
+llm = ChatAnthropic(
+    model="claude-3-haiku-20240307",  
+    temperature=0,
+    anthropic_api_key=os.environ.get('ANTHROPIC_API_KEY')  # Get from environment instead of hardcoding
+) 
+
+try:
+    # Create agent with the tool
+    # Simplify agent initialization
+    agent = initialize_agent(
+        tools=[snowflake_tool],
+        llm=llm,
+        agent_type=AgentType.ZERO_SHOT_REACT_DESCRIPTION,  # Add specific agent type
+        handle_parsing_errors=True,
+        max_iterations=2,  # Limit iterations to reduce token usage
+        early_stopping_method="generate"  # Add early stopping
+    )
+except Exception as e:
+    print(f"Error initializing agent: {str(e)}")
+    print("Available Claude models: claude-3-opus-20240229, claude-3-sonnet-20240229, claude-3-haiku-20240307")
+    raise
  
 def get_ai_analysis():
     """Get AI-generated analysis of NVIDIA metrics"""
-    prompt = """You are an AI agent tasked with analyzing NVIDIA financial metrics.
-    Use the nvidia_financial_metrics tool to get the data and provide a summary of key insights.
-    Your response must follow this format:
-   
-    Thought: [Your thought process]
-    Action: [The action you will take, e.g., "nvidia_financial_metrics"]
-    Action Input: [The input for the action, if any]
-    """
-   
-    for attempt in range(3):  # Retry up to 3 times
-        try:
-            response = agent.run(prompt)
-            return response
-        except Exception as e:
-            error_message = str(e)
-            if "rate limit" in error_message.lower():
-                print("Rate limit exceeded. Retrying...")
-                time.sleep(10)  # Wait for 10 seconds before retrying
-            else:
-                print(f"Error during analysis: {error_message}")
-                return None
-    print("Failed after 3 attempts due to rate limit.")
-    return None
- 
+    prompt = """Analyze NVIDIA financial metrics using the nvidia_financial_metrics tool.
+    Provide a brief summary of key insights."""
+    
+    try:
+        response = agent.invoke({"input": prompt})
+        return response.get("output", str(response))
+    except Exception as e:
+        print(f"Error during analysis: {str(e)}")
+        return "Analysis unavailable - Rate limit exceeded. Please try again later."  
 
 if __name__ == "__main__":
     analysis = get_ai_analysis()

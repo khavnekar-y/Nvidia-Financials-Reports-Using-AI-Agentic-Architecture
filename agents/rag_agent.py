@@ -115,37 +115,43 @@ def search_all_namespaces(query: str, alpha: float = 0.5):
         return "No results found across any namespace."
     
 @tool("search_specific_quarter")
-def search_specific_quarter(query: str, year: str, quarter: str, alpha: float = 0.5):
+def search_specific_quarter(input_dict: Dict) -> str:
     """
-    Searches in a specific quarterly report namespace using hybrid search.
+    Searches in specific quarterly report namespaces using hybrid search.
     Args:
-        query: The search query
-        year: Year of the report (e.g., '2023')
-        quarter: Quarter number (1-4)
-        alpha: Hybrid search parameter (0 = sparse, 1 = dense)
+        input_dict: Dictionary containing query and selected periods
     """
-    namespace = f"{year}q{quarter}"
+    if isinstance(input_dict,str) and "input_dict" in input_dict:
+        input_dict = json.loads(input_dict)
+    query = input_dict.get("query")
+    selected_periods = input_dict.get("selected_periods", ["2023q1"]) 
+    if not query:
+        return "Error: No query provided."
+    results = []
+    
+    # Encode query once for all searches
     xq = encoder.encode([query])[0].tolist()
     
-    try:
-        # Hybrid search
-        xc = index.query(
-            vector=xq,
-            top_k=10,
-            include_metadata=True,
-            namespace=namespace,
-            alpha=alpha,  # Hybrid search parameter
-            
-        )
-        
-        # Rerank results
-        if xc["matches"]:
-            results = rerank_results(query, xc["matches"])
-            return format_rag_contexts(results)
-        return "No results found."
+    for period in selected_periods:
+        try:
+            # Query each selected namespace
+            xc = index.query(
+                vector=xq,
+                top_k=5,
+                include_metadata=True,
+                namespace=period,
+                alpha=0.5
+            )
+            if xc["matches"]:
+                results.extend(xc["matches"])
+        except Exception as e:
+            logging.error(f"Error searching namespace {period}: {str(e)}")
     
-    except Exception as e:
-        return f"Error searching namespace {namespace}: {str(e)}"
+    # Rerank combined results
+    if results:
+        results = rerank_results(query, results)
+        return format_rag_contexts(results)
+    return "No results found in selected quarters."
     
 # ...existing code...
 
@@ -160,16 +166,21 @@ if __name__ == "__main__":
     # else:
     #     print("No results found")
         
-    # Uncomment to test specific quarter search
+    # Test searching across multiple periods
     test_query = "NVIDIA revenue growth"
-    test_year = "2024"
-    test_quarter = "1"
-    # Fix: Change the invocation format
-    specific_result = search_specific_quarter.invoke({
-        "query": test_query,
-        "year": test_year,
-        "quarter": test_quarter
-    })
-    print("\n=== Specific Quarter Results ===")
+    # Define multiple periods to search across
+    test_periods = ["2023q1", "2023q2", "2024q1"]
+    
+    # Fix: Properly structure the input dictionary
+    input_dict = {
+        "input_dict": {  # Add this outer key to match the tool's expected format
+            "query": test_query,
+            "selected_periods": test_periods
+        }
+    }
+    
+    specific_result = search_specific_quarter.invoke(input_dict)
+    
+    print("\n=== Multiple Quarter Results ===")
     print(specific_result)
         
