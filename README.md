@@ -220,6 +220,11 @@ result = pipeline.invoke({
   }
   ```
 
+##Deployed Links
+- **FASTAPI** = https://fastapi-agentic-app-84150543519.us-central1.run.app/docs
+- **STREAMLIT** = https://nvidia-research-assistant.streamlit.app/
+- **GOOGLE CODELABS** = (https://codelabs-preview.appspot.com/?file_id=https://docs.google.com/document/d/1ICUz9IDBFdY6gg08xEMlXLj2zhaEvnilhxXG8se3FGs/edit?tab=t.0#0)
+
 ## Contributing
 
 1. Fork the repository
@@ -245,10 +250,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 - Yash Khavnekar
 - Shushil Girish
-
-## Contact
-
-- Email: khavnekar.y@northeastern.edu
+- Riya Mate
 
 ## FAQ
 
